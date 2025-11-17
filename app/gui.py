@@ -18,6 +18,9 @@ import yt_dlp
 from pathlib import Path
 import subprocess
 import os
+import sys
+import shutil
+import re
 from .settings import SettingsManager
 from .logger import setup_logging, get_logger
 from .security import validate_url, sanitize_filename
@@ -102,22 +105,43 @@ class DownloadWorker(QObject):
                     try:
                         self.progress.emit(0, "Tải sắp xong, vui lòng chờ...")
                         self.logger.info(f"Encoding video: {src.name}")
-                        # encode video to h.264 and audio to aac
-                        subprocess.run([
-                            "ffmpeg",
-                            "-y",
-                            "-i",
-                            str(src),
-                            "-c:v",
-                            "libx264",
-                            "-preset",
-                            "fast",
-                            "-c:a",
-                            "aac",
-                            "-b:a",
-                            "192k",
-                            str(tmp),
-                        ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+                        # Determine ffmpeg executable: prefer bundled ffmpeg in frozen app or project, fallback to PATH
+                        ffmpeg_cmd = shutil.which("ffmpeg")
+                        if not ffmpeg_cmd:
+                            # If running as PyInstaller bundle, look in _MEIPASS
+                            if getattr(sys, "frozen", False):
+                                base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[1]))
+                                candidate = base / "ffmpeg.exe"
+                                if candidate.exists():
+                                    ffmpeg_cmd = str(candidate)
+                            else:
+                                # look for app/ffmpeg/ffmpeg.exe in source tree
+                                candidate = Path(__file__).resolve().parents[1] / "ffmpeg" / "ffmpeg.exe"
+                                if candidate.exists():
+                                    ffmpeg_cmd = str(candidate)
+
+                        if not ffmpeg_cmd:
+                            # If ffmpeg is not found, log and skip encoding (keep original)
+                            self.logger.warning("ffmpeg not found; skipping re-encode step and keeping original file.")
+                        else:
+                            # encode video to h.264 and audio to aac
+                            subprocess.run([
+                                ffmpeg_cmd,
+                                "-y",
+                                "-i",
+                                str(src),
+                                "-c:v",
+                                "libx264",
+                                "-preset",
+                                "fast",
+                                "-c:a",
+                                "aac",
+                                "-b:a",
+                                "192k",
+                                str(tmp),
+                            ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
                         # atomically replace original with tmp so only one file (original name) remains
                         try:
                             tmp.replace(src)
@@ -327,6 +351,23 @@ class MainWindow(QMainWindow):
             )
             return
 
+        # Quick heuristic: detect obvious non-video URLs (TikTok photo posts, direct images)
+        lower = url.lower()
+        # common image file extensions
+        image_exts = ('.jpg', '.jpeg', '.png', '.gif', '.webp')
+        if any(lower.endswith(ext) for ext in image_exts):
+            self.result_label.setText("URL trỏ tới hình ảnh chứ không phải video.")
+            QMessageBox.information(self, "Không phải video", "URL này trỏ tới một ảnh (không phải video). Vui lòng dán link video.")
+            self.logger.info(f"Blocked image URL: {url}")
+            return
+
+        # TikTok photo posts have '/photo/' in path; catch them early to avoid yt-dlp errors
+        if 'tiktok.com' in lower and '/photo/' in lower:
+            self.result_label.setText("URL TikTok này là bài ảnh, không phải video.")
+            QMessageBox.information(self, "Không phải video", "Link TikTok này là bài đăng ảnh (photo), không thể tải video từ link này. Vui lòng dán link video.")
+            self.logger.info(f"Blocked TikTok photo URL: {url}")
+            return
+
         # disable buttons while downloading
         self.download_btn.setEnabled(False)
         self.choose_btn.setEnabled(False)
@@ -411,16 +452,28 @@ class MainWindow(QMainWindow):
             self.url_input.clear()  # Clear input after successful download
             self.logger.info(f"Download completed: {message}")
         else:
-            error_msg = f"Lỗi: {message}"
-            self.result_label.setText(error_msg)
-            self.logger.error(f"Download error: {message}")
-            # Show error dialog
-            QMessageBox.critical(
-                self,
-                "Lỗi Tải",
-                f"Tải video thất bại:\n\n{message}\n\nVui lòng kiểm tra URL hoặc thử lại.",
-                QMessageBox.Ok
-            )
+            # Strip ANSI escape sequences from yt-dlp error output
+            try:
+                clean_message = re.sub(r'\x1B\[[0-?]*[ -/]*[@-~]', '', str(message))
+            except Exception:
+                clean_message = str(message)
+
+            # Friendly message for unsupported URLs
+            if "Unsupported URL" in clean_message or "UnsupportedError" in clean_message:
+                user_msg = (
+                    "URL này không được hỗ trợ (không phải video hoặc nền tảng không được hỗ trợ).\n"
+                    "Vui lòng thử một URL video hợp lệ (ví dụ YouTube) hoặc cập nhật yt-dlp.\n\n"
+                    f"Chi tiết: {clean_message}"
+                )
+                self.result_label.setText("Lỗi: URL không được hỗ trợ.")
+                self.logger.error(f"Download error: {clean_message}")
+                QMessageBox.critical(self, "Lỗi Tải", user_msg, QMessageBox.Ok)
+            else:
+                # Generic error
+                user_msg = f"Tải video thất bại:\n\n{clean_message}\n\nVui lòng kiểm tra URL hoặc thử lại."
+                self.result_label.setText(f"Lỗi: {clean_message}")
+                self.logger.error(f"Download error: {clean_message}")
+                QMessageBox.critical(self, "Lỗi Tải", user_msg, QMessageBox.Ok)
 
         # cleanup thread/worker
         if self._thread:

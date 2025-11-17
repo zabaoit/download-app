@@ -37,12 +37,29 @@ def build_windows():
         sys.executable, "-m", "PyInstaller",
         "download_app.spec",
         "--distpath", "dist",
-        "--buildpath", "build",
+        "--workpath", "build",
     ])
     
     if result.returncode == 0:
         print("\n✓ Windows build complete!")
         print(f"  Executable: dist/DownloadApp/DownloadApp.exe")
+        # If a bundled ffmpeg exists in project, copy into dist so exe can use it
+        src_ffmpeg = Path(__file__).resolve().parents[0] / "app" / "ffmpeg" / "ffmpeg.exe"
+        dist_dir = Path("dist") / "DownloadApp"
+        if src_ffmpeg.exists():
+            try:
+                shutil.copy2(src_ffmpeg, dist_dir / "ffmpeg.exe")
+                print(f"  Bundled ffmpeg copied to: {dist_dir / 'ffmpeg.exe'}")
+            except Exception as e:
+                print(f"  Warning: could not copy bundled ffmpeg: {e}")
+        else:
+            print("  Note: no bundled ffmpeg found at 'app/ffmpeg/ffmpeg.exe' — you may include ffmpeg in the dist manually.")
+        # Create zip of dist folder for easy distribution
+        try:
+            shutil.make_archive(str(dist_dir), 'zip', root_dir=str(dist_dir))
+            print(f"  Packaged artifact: {dist_dir}.zip")
+        except Exception as e:
+            print(f"  Warning: failed to create zip artifact: {e}")
     else:
         print("\n✗ Build failed!")
         sys.exit(1)
@@ -63,7 +80,7 @@ def build_macos():
         sys.executable, "-m", "PyInstaller",
         "download_app.spec",
         "--distpath", "dist",
-        "--buildpath", "build",
+        "--workpath", "build",
     ])
     
     if result.returncode == 0:
@@ -85,7 +102,7 @@ def build_linux():
         sys.executable, "-m", "PyInstaller",
         "download_app.spec",
         "--distpath", "dist",
-        "--buildpath", "build",
+        "--workpath", "build",
     ])
     
     if result.returncode == 0:
