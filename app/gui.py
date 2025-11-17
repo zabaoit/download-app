@@ -363,7 +363,27 @@ class MainWindow(QMainWindow):
             self._thread.requestInterruption()
             self._thread.quit()
             self._thread.wait(1000)
-        self._cleanup_after_cancel()
+        # Call cleanup if available, otherwise perform inline cleanup
+        if hasattr(self, "_cleanup_after_cancel"):
+            self._cleanup_after_cancel()
+        else:
+            try:
+                self.download_btn.setEnabled(True)
+                self.choose_btn.setEnabled(True)
+                self.cancel_btn.setEnabled(False)
+            except Exception:
+                pass
+            try:
+                self._worker = None
+                self._thread = None
+            except Exception:
+                pass
+            try:
+                self.progress_bar.setRange(0, 100)
+                self.progress_bar.setValue(0)
+                self.progress_bar.setVisible(False)
+            except Exception:
+                pass
 
     def _on_progress(self, percent: int, text: str):
         # If percent is 0, keep showing busy indicator (no 0% displayed)
@@ -406,7 +426,52 @@ class MainWindow(QMainWindow):
         if self._thread:
             self._thread.quit()
             self._thread.wait()
-        self._cleanup_after_cancel()
+        # Call cleanup if available, otherwise perform inline cleanup
+        if hasattr(self, "_cleanup_after_cancel"):
+            self._cleanup_after_cancel()
+        else:
+            try:
+                self.download_btn.setEnabled(True)
+                self.choose_btn.setEnabled(True)
+                self.cancel_btn.setEnabled(False)
+            except Exception:
+                pass
+            try:
+                self._worker = None
+                self._thread = None
+            except Exception:
+                pass
+            try:
+                self.progress_bar.setRange(0, 100)
+                self.progress_bar.setValue(0)
+                self.progress_bar.setVisible(False)
+            except Exception:
+                pass
+
+    def _cleanup_after_cancel(self):
+        """Restore UI state after a download finishes or is cancelled."""
+        try:
+            # Re-enable primary buttons
+            self.download_btn.setEnabled(True)
+            self.choose_btn.setEnabled(True)
+            self.cancel_btn.setEnabled(False)
+        except Exception:
+            pass
+
+        # Clear worker/thread references
+        try:
+            self._worker = None
+            self._thread = None
+        except Exception:
+            pass
+
+        # Reset and hide progress bar
+        try:
+            self.progress_bar.setRange(0, 100)
+            self.progress_bar.setValue(0)
+            self.progress_bar.setVisible(False)
+        except Exception:
+            pass
 
     def closeEvent(self, event):
         """Save window geometry when closing."""
