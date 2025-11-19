@@ -6,14 +6,16 @@ Một ứng dụng desktop GUI hiện đại và dễ sử dụng để tải vi
 
 ## ✨ Tính Năng
 
-- ⬇️ **Tải từ nhiều nền tảng** - YouTube, Instagram, TikTok, Facebook, v.v. (thông qua yt-dlp)
+- ⬇️ **Tải từ nhiều nền tảng** - YouTube, Instagram, TikTok, Facebook, v.v. (1000+ nền tảng thông qua yt-dlp)
 - 🗁 **Chọn thư mục lưu** - Giao diện cho phép chọn thư mục lưu video trực tiếp
 - 📊 **Hiển thị tiến trình** - Progress bar real-time + ETA khi tải video
-- 🎬 **Tự động encode H.264** - Convert video sang H.264 + AAC (tương thích 100% WMP)
+- 🎬 **Tự động transcode HEVC → H.264** - Phát hiện codec HEVC (H.265) và tự động convert sang H.264 + AAC (tương thích 100% Windows Media Player)
 - ⌨️ **Nhấn Enter để tải** - Paste URL → Nhấn Enter hoặc nút Download
-- 🎨 **Giao diện hiện đại** - Material Design với màu sắc, icon emoji, responsive layout
+- 🎨 **Giao diện hiện đại** - Material Design với Dark/Light mode, icon emoji, responsive layout
 - 📝 **Xóa input tự động** - Ô URL tự xóa sau khi tải xong thành công
 - 💾 **Chỉ giữ 1 file** - App tự động thay thế file gốc bằng file đã encode (không có file dư)
+- 🎯 **Chọn chất lượng video** - Dropdown để chọn Auto/1080p/720p/Audio-only
+- 🌙 **Dark/Light Mode** - Toggle theme để phù hợp với sở thích của bạn
 
 ---
 
@@ -203,20 +205,32 @@ Thư mục downloads/ sẽ tự động được tạo nếu chưa tồn tại.
 Nó sẽ được tạo cùng cấp với file run.py
 ```
 
-### 2. Auto-encode H.264 + AAC
+### 2. Auto-encode H.264 + AAC (với HEVC Detection)
 **Vấn đề:**
-- YouTube/Instagram/TikTok phục vụ HEVC hoặc HLS format
-- Windows Media Player không hỗ trợ những format này
+- YouTube/Instagram/TikTok phục vụ HEVC (H.265) hoặc HLS format
+- Windows Media Player không hỗ trợ HEVC (yêu cầu codec mắc tiền từ Microsoft Store)
+- Một số video có thể là H.264 sẵn
 
-**Giải pháp:**
-- App tự động encode video sang **H.264** (libx264) + **AAC** audio
-- Preset **"fast"** cân bằng tốc độ & chất lượng
-- Kết quả: tương thích 100% với Windows Media Player
+**Giải pháp - Tính Năng HEVC Auto-Detect & Transcode:**
+- App **tự động phát hiện** codec của video (dùng ffmpeg)
+- Nếu video là **HEVC**: Tự động transcode sang H.264 (libx264) + AAC audio
+- Nếu video là **H.264/VP9/AV1** (không phải HEVC): Giữ nguyên gốc (không encode lại)
+- Người dùng **không cần làm gì**, quá trình diễn ra im lặng
 
-**Thời gian encode:**
-- 720p video: ~1-2 phút
-- 1080p video: ~3-5 phút
-- 4K video: ~10+ phút
+**Progress Indicator:**
+- Khi tải video: "Đang tải... 45%"
+- Khi đang transcode (nếu cần): "Chuyển đổi video sang định dạng H.264..."
+- Lúc xong: "Tải thành công! Lưu tại: [path]"
+
+**Kết quả:**
+- ✅ 100% tương thích với Windows Media Player
+- ✅ Chất lượng cao (CRF 20, preset medium)
+- ✅ Người dùng có thể mở file ngay, không cần cài codec riêng
+
+**Thời gian transcode:**
+- 720p HEVC video: ~30-60 giây
+- 1080p HEVC video: ~2-4 phút
+- Video non-HEVC: 0 giây (không cần transcode)
 
 ### 3. Real-time Progress Tracking
 - Hiển thị % tải + ETA trong quá trình download
@@ -324,15 +338,38 @@ python run.py
 
 ---
 
-### Lỗi 4: "Video chỉ chạy trên VLC, không chạy trên Windows Media Player"
+### Lỗi 4: "You need a new codec to play this item" (Windows Media Player)
 
-**Nguyên nhân:** Video được encode sang HEVC hoặc format không tương thích WMP
+**Nguyên nhân:** Video sử dụng codec HEVC (H.265) mà Windows Media Player mặc định không hỗ trợ
 
 **Giải pháp:**
+
+**Option 1: Tải lại với ứng dụng (KHUYẾN NGHỊ)**
 1. Đảm bảo FFmpeg đã được cài (xem Lỗi 1)
 2. Restart PowerShell để cập nhật PATH
 3. Chạy lại app: `python run.py`
-4. Tải video - nó sẽ tự động encode sang H.264 (tương thích WMP)
+4. Tải lại video - app sẽ **tự động phát hiện HEVC** và **transcode sang H.264** (không cần làm gì)
+5. Video mới sẽ mở được trên Windows Media Player 100%
+
+**Option 2: Tải codec từ Microsoft Store (không khuyến khích)**
+- Video sẽ yêu cầu: "HEVC Video Extensions" ($0.99)
+- Cài từ: https://www.microsoft.com/en-us/p/hevc-video-extensions/9nmzlz57r3t7
+
+**Option 3: Dùng player khác (VLC, MPV)**
+- VLC Player: https://www.videolan.org/
+- MPV Player: https://mpv.io/
+- Cả hai đều hỗ trợ HEVC sẵn
+
+**Cách kiểm tra codec của video:**
+```powershell
+ffmpeg -i "C:\path\to\video.mp4" 2>&1 | findstr "Video:"
+# Nếu thấy "hevc" hoặc "h265" → video là HEVC
+# Nếu thấy "h264" hoặc "avc1" → video là H.264 (tương thích WMP)
+```
+
+**Tóm tắt:**
+- App mới nhất **tự động detect & transcode HEVC** → Không cần lo lắng 🎉
+- Nếu cũ video trước đó (trước v1.0.3), hãy tải lại với bản mới
 
 ---
 
