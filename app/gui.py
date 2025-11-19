@@ -59,23 +59,34 @@ class DownloadWorker(QObject):
                 self.logger.warning("ffprobe not found; assuming video is not HEVC")
                 return False
 
-            # Use ffprobe to check codec
+            # Use ffmpeg (simpler) to check codec - parse from ffmpeg output
+            ffmpeg_cmd = shutil.which("ffmpeg")
+            if not ffmpeg_cmd:
+                if getattr(sys, "frozen", False):
+                    base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[1]))
+                    candidate = base / "ffmpeg.exe"
+                    if candidate.exists():
+                        ffmpeg_cmd = str(candidate)
+                else:
+                    candidate = Path(__file__).resolve().parents[1] / "ffmpeg" / "ffmpeg.exe"
+                    if candidate.exists():
+                        ffmpeg_cmd = str(candidate)
+
+            if not ffmpeg_cmd:
+                self.logger.warning("ffmpeg not found; cannot detect HEVC codec")
+                return False
+
+            # Use ffmpeg to probe (more reliable than ffprobe -show_entries)
             result = subprocess.run(
-                [
-                    ffprobe_cmd,
-                    "-v", "error",
-                    "-select_streams", "v:0",
-                    "-show_entries", "stream=codec_name",
-                    "-of", "default=noprint_wrappers=1:nokey=1:noescape=1",
-                    video_path,
-                ],
+                [ffmpeg_cmd, "-i", video_path],
                 capture_output=True,
                 text=True,
-                timeout=5,
+                timeout=10,
             )
-            codec = result.stdout.strip()
-            is_hevc = codec.lower() in ("hevc", "h265", "hev1", "hvc1")
-            self.logger.info(f"Video codec detected: {codec} (HEVC: {is_hevc})")
+            # Check both stdout and stderr for hevc/h265/hvc1 mentions
+            output = result.stdout + result.stderr
+            is_hevc = "hevc" in output.lower() or "h265" in output.lower() or "hvc1" in output.lower()
+            self.logger.info(f"Video codec check: HEVC={is_hevc}")
             return is_hevc
         except Exception as e:
             self.logger.warning(f"Error detecting HEVC codec: {e}")
