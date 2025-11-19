@@ -8,7 +8,6 @@ from PySide6.QtWidgets import (
     QWidget,
     QProgressBar,
     QFileDialog,
-    QCheckBox,
     QMessageBox,
     QComboBox,
 )
@@ -30,12 +29,11 @@ class DownloadWorker(QObject):
     progress = Signal(int, str)  # percent, status text
     finished = Signal(bool, str)  # success, message/path
 
-    def __init__(self, url: str, outdir: str, quality: str = "auto", transcode_hevc: bool = False):
+    def __init__(self, url: str, outdir: str, quality: str = "auto"):
         super().__init__()
         self.url = url
         self.outdir = outdir
         self.quality = quality  # "auto", "1080p", "720p", "audio"
-        self.transcode_hevc = transcode_hevc  # whether to auto-transcode HEVC to H.264
         self._last_percent = 0
         self._last_filename = None
         self.logger = get_logger("DownloadWorker")
@@ -146,10 +144,10 @@ class DownloadWorker(QObject):
                     final_path = str(src)
                     
                     # Check if we should transcode this video
-                    should_transcode = self.transcode_hevc and self._detect_hevc(str(src))
+                    should_transcode = self._detect_hevc(str(src))
                     
                     if should_transcode:
-                        # Transcode HEVC to H.264 for Windows compatibility
+                        # Auto-transcode HEVC to H.264 for Windows compatibility
                         tmp = src.with_suffix('.tmp.mp4')
                         try:
                             self.progress.emit(0, "Chuyển đổi video sang định dạng H.264 (tương thích Windows)...")
@@ -216,10 +214,9 @@ class DownloadWorker(QObject):
                             self.logger.error(f"Unexpected error during HEVC transcode: {e}")
                             final_path = str(src)
                     else:
-                        # No transcode needed; video is ready as-is
+                        # Video is not HEVC; no transcode needed
                         final_path = str(src)
-                        if self.transcode_hevc:
-                            self.logger.info(f"Video is not HEVC; no transcode needed: {src}")
+                        self.logger.info(f"Video is not HEVC; keeping original: {src}")
                 else:
                     final_path = str(Path(self.outdir))
             else:
@@ -297,13 +294,6 @@ class MainWindow(QMainWindow):
         if quality_index >= 0:
             self.quality_combo.setCurrentIndex(quality_index)
         row1.addWidget(self.quality_combo)
-
-        # Transcode HEVC checkbox
-        self.transcode_hevc_cb = QCheckBox("🔄 H.264")
-        self.transcode_hevc_cb.setToolTip("Chuyển đổi video HEVC thành H.264 cho tương thích Windows")
-        saved_transcode = settings_data.get("transcode_hevc", False)
-        self.transcode_hevc_cb.setChecked(saved_transcode)
-        row1.addWidget(self.transcode_hevc_cb)
 
         main_layout.addLayout(row1)
 
@@ -452,10 +442,7 @@ class MainWindow(QMainWindow):
         quality_value = quality_map.get(selected_quality, "auto")
         # Save quality preference
         self.settings.set("quality", selected_quality)
-        # Get transcode HEVC setting
-        transcode_hevc = self.transcode_hevc_cb.isChecked()
-        self.settings.set("transcode_hevc", transcode_hevc)
-        self._worker = DownloadWorker(url, str(self.downloads_dir), quality_value, transcode_hevc)
+        self._worker = DownloadWorker(url, str(self.downloads_dir), quality_value)
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
         self._worker.progress.connect(self._on_progress)
