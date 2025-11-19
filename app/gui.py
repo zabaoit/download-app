@@ -30,14 +30,58 @@ class DownloadWorker(QObject):
     progress = Signal(int, str)  # percent, status text
     finished = Signal(bool, str)  # success, message/path
 
-    def __init__(self, url: str, outdir: str, quality: str = "auto"):
+    def __init__(self, url: str, outdir: str, quality: str = "auto", transcode_hevc: bool = False):
         super().__init__()
         self.url = url
         self.outdir = outdir
         self.quality = quality  # "auto", "1080p", "720p", "audio"
+        self.transcode_hevc = transcode_hevc  # whether to auto-transcode HEVC to H.264
         self._last_percent = 0
         self._last_filename = None
         self.logger = get_logger("DownloadWorker")
+
+    def _detect_hevc(self, video_path: str) -> bool:
+        """Detect if video uses HEVC codec using ffprobe."""
+        try:
+            # Find ffprobe (usually bundled with ffmpeg)
+            ffprobe_cmd = shutil.which("ffprobe")
+            if not ffprobe_cmd:
+                if getattr(sys, "frozen", False):
+                    base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[1]))
+                    candidate = base / "ffprobe.exe"
+                    if candidate.exists():
+                        ffprobe_cmd = str(candidate)
+                else:
+                    candidate = Path(__file__).resolve().parents[1] / "ffmpeg" / "ffprobe.exe"
+                    if candidate.exists():
+                        ffprobe_cmd = str(candidate)
+
+            if not ffprobe_cmd:
+                # Can't detect, assume not HEVC
+                self.logger.warning("ffprobe not found; assuming video is not HEVC")
+                return False
+
+            # Use ffprobe to check codec
+            result = subprocess.run(
+                [
+                    ffprobe_cmd,
+                    "-v", "error",
+                    "-select_streams", "v:0",
+                    "-show_entries", "stream=codec_name",
+                    "-of", "default=noprint_wrappers=1:nokey=1:noescape=1",
+                    video_path,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            codec = result.stdout.strip()
+            is_hevc = codec.lower() in ("hevc", "h265", "hev1", "hvc1")
+            self.logger.info(f"Video codec detected: {codec} (HEVC: {is_hevc})")
+            return is_hevc
+        except Exception as e:
+            self.logger.warning(f"Error detecting HEVC codec: {e}")
+            return False
 
     def _progress_hook(self, d):
         status = d.get("status")
@@ -99,73 +143,83 @@ class DownloadWorker(QObject):
                     src = Path(self.outdir) / src.name
 
                 if src.exists():
-                    # attempt to remux/re-encode audio to AAC (widely supported)
-                    # write to a temporary file in the same folder, then atomically replace
-                    tmp = src.with_suffix('.tmp.mp4')
-                    try:
-                        self.progress.emit(0, "Tải sắp xong, vui lòng chờ...")
-                        self.logger.info(f"Encoding video: {src.name}")
-
-                        # Determine ffmpeg executable: prefer bundled ffmpeg in frozen app or project, fallback to PATH
-                        ffmpeg_cmd = shutil.which("ffmpeg")
-                        if not ffmpeg_cmd:
-                            # If running as PyInstaller bundle, look in _MEIPASS
-                            if getattr(sys, "frozen", False):
-                                base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[1]))
-                                candidate = base / "ffmpeg.exe"
-                                if candidate.exists():
-                                    ffmpeg_cmd = str(candidate)
-                            else:
-                                # look for app/ffmpeg/ffmpeg.exe in source tree
-                                candidate = Path(__file__).resolve().parents[1] / "ffmpeg" / "ffmpeg.exe"
-                                if candidate.exists():
-                                    ffmpeg_cmd = str(candidate)
-
-                        if not ffmpeg_cmd:
-                            # If ffmpeg is not found, log and skip encoding (keep original)
-                            self.logger.warning("ffmpeg not found; skipping re-encode step and keeping original file.")
-                        else:
-                            # encode video to h.264 and audio to aac
-                            subprocess.run([
-                                ffmpeg_cmd,
-                                "-y",
-                                "-i",
-                                str(src),
-                                "-c:v",
-                                "libx264",
-                                "-preset",
-                                "fast",
-                                "-c:a",
-                                "aac",
-                                "-b:a",
-                                "192k",
-                                str(tmp),
-                            ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
-                        # atomically replace original with tmp so only one file (original name) remains
+                    final_path = str(src)
+                    
+                    # Check if we should transcode this video
+                    should_transcode = self.transcode_hevc and self._detect_hevc(str(src))
+                    
+                    if should_transcode:
+                        # Transcode HEVC to H.264 for Windows compatibility
+                        tmp = src.with_suffix('.tmp.mp4')
                         try:
-                            tmp.replace(src)
+                            self.progress.emit(0, "Chuyển đổi video sang định dạng H.264 (tương thích Windows)...")
+                            self.logger.info(f"Transcoding HEVC to H.264: {src.name}")
+
+                            # Determine ffmpeg executable: prefer bundled ffmpeg in frozen app or project, fallback to PATH
+                            ffmpeg_cmd = shutil.which("ffmpeg")
+                            if not ffmpeg_cmd:
+                                # If running as PyInstaller bundle, look in _MEIPASS
+                                if getattr(sys, "frozen", False):
+                                    base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[1]))
+                                    candidate = base / "ffmpeg.exe"
+                                    if candidate.exists():
+                                        ffmpeg_cmd = str(candidate)
+                                else:
+                                    # look for app/ffmpeg/ffmpeg.exe in source tree
+                                    candidate = Path(__file__).resolve().parents[1] / "ffmpeg" / "ffmpeg.exe"
+                                    if candidate.exists():
+                                        ffmpeg_cmd = str(candidate)
+
+                            if not ffmpeg_cmd:
+                                # If ffmpeg is not found, log and skip transcode (keep original)
+                                self.logger.warning("ffmpeg not found; skipping HEVC transcode and keeping original file.")
+                            else:
+                                # Transcode HEVC to H.264 + AAC for maximum Windows compatibility
+                                subprocess.run([
+                                    ffmpeg_cmd,
+                                    "-y",
+                                    "-i",
+                                    str(src),
+                                    "-c:v",
+                                    "libx264",
+                                    "-preset",
+                                    "medium",  # medium quality/speed balance
+                                    "-crf",
+                                    "20",  # quality (lower = better, 0-51)
+                                    "-c:a",
+                                    "aac",
+                                    "-b:a",
+                                    "192k",
+                                    str(tmp),
+                                ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+                                # atomically replace original with tmp
+                                try:
+                                    tmp.replace(src)
+                                    final_path = str(src)
+                                    self.logger.info(f"HEVC to H.264 transcode complete: {src}")
+                                except Exception:
+                                    try:
+                                        # fallback to os.replace
+                                        os.replace(str(tmp), str(src))
+                                        final_path = str(src)
+                                        self.logger.info(f"HEVC to H.264 transcode complete (via os.replace): {src}")
+                                    except Exception as e:
+                                        # if replace fails, keep tmp as final
+                                        final_path = str(tmp)
+                                        self.logger.warning(f"Could not replace original, using temp file: {e}")
+                        except subprocess.CalledProcessError as e:
+                            # ffmpeg failed — keep original
+                            self.logger.error(f"FFmpeg HEVC transcode failed: {e}")
                             final_path = str(src)
-                            self.logger.info(f"Download and encode complete: {src}")
-                        except Exception:
-                            try:
-                                # fallback to os.replace
-                                os.replace(str(tmp), str(src))
-                                final_path = str(src)
-                                self.logger.info(f"Download and encode complete (via os.replace): {src}")
-                            except Exception as e:
-                                # if replace fails, keep tmp as final
-                                final_path = str(tmp)
-                                self.logger.warning(f"Could not replace original, using temp file: {e}")
-                    except subprocess.CalledProcessError as e:
-                        # ffmpeg failed — fall back to original
-                        self.logger.error(f"FFmpeg encoding failed: {e}")
+                        except Exception as e:
+                            self.logger.error(f"Unexpected error during HEVC transcode: {e}")
+                            final_path = str(src)
+                    else:
+                        # No transcode needed; video is ready as-is
                         final_path = str(src)
-                        self.finished.emit(True, final_path)
-                        return
-                    except Exception as e:
-                        self.logger.error(f"Unexpected error during encoding: {e}")
-                        final_path = str(src)
+                        if self.transcode_hevc:
+                            self.logger.info(f"Video is not HEVC; no transcode needed: {src}")
                 else:
                     final_path = str(Path(self.outdir))
             else:
@@ -243,6 +297,13 @@ class MainWindow(QMainWindow):
         if quality_index >= 0:
             self.quality_combo.setCurrentIndex(quality_index)
         row1.addWidget(self.quality_combo)
+
+        # Transcode HEVC checkbox
+        self.transcode_hevc_cb = QCheckBox("🔄 H.264")
+        self.transcode_hevc_cb.setToolTip("Chuyển đổi video HEVC thành H.264 cho tương thích Windows")
+        saved_transcode = settings_data.get("transcode_hevc", False)
+        self.transcode_hevc_cb.setChecked(saved_transcode)
+        row1.addWidget(self.transcode_hevc_cb)
 
         main_layout.addLayout(row1)
 
@@ -391,7 +452,10 @@ class MainWindow(QMainWindow):
         quality_value = quality_map.get(selected_quality, "auto")
         # Save quality preference
         self.settings.set("quality", selected_quality)
-        self._worker = DownloadWorker(url, str(self.downloads_dir), quality_value)
+        # Get transcode HEVC setting
+        transcode_hevc = self.transcode_hevc_cb.isChecked()
+        self.settings.set("transcode_hevc", transcode_hevc)
+        self._worker = DownloadWorker(url, str(self.downloads_dir), quality_value, transcode_hevc)
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
         self._worker.progress.connect(self._on_progress)
