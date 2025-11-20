@@ -11,11 +11,11 @@ Một ứng dụng desktop GUI hiện đại và dễ sử dụng để tải vi
 - 📊 **Hiển thị tiến trình** - Progress bar real-time + ETA khi tải video
 - 🎬 **Tự động transcode HEVC → H.264** - Phát hiện codec HEVC (H.265) và tự động convert sang H.264 + AAC (tương thích 100% Windows Media Player)
 - ⌨️ **Nhấn Enter để tải** - Paste URL → Nhấn Enter hoặc nút Download
-- 🎨 **Giao diện hiện đại** - Material Design với Dark/Light mode, icon emoji, responsive layout
+- 🎨 **Giao diện hiện đại** - Material Design gọn gàng, dễ sử dụng
 - 📝 **Xóa input tự động** - Ô URL tự xóa sau khi tải xong thành công
 - 💾 **Chỉ giữ 1 file** - App tự động thay thế file gốc bằng file đã encode (không có file dư)
 - 🎯 **Chọn chất lượng video** - Dropdown để chọn Auto/1080p/720p/Audio-only
-- 🌙 **Dark/Light Mode** - Toggle theme để phù hợp với sở thích của bạn
+- 📦 **Build thành .exe** - Có thể build thành Windows executable độc lập
 
 ---
 
@@ -141,14 +141,38 @@ python -m app.app
 download-app/
 │
 ├── run.py                    # 🚀 Entry point - chạy: python run.py
-├── app/
+├── requirements.txt          # Python dependencies
+├── build.py                  # 📦 Script build file .exe (PyInstaller)
+│
+├── app/                      # 📂 Source code chính
 │   ├── __init__.py           # Package initializer
 │   ├── app.py                # Main app logic + QApplication setup
-│   └── gui.py                # GUI components + Worker thread + Stylesheet
-├── downloads/                # 📂 Thư mục mặc định để lưu video
-├── requirements.txt          # Python dependencies
-├── README.md                 # File này
-└── .gitignore               # (tuỳ chọn) Exclude venv/, downloads/
+│   ├── gui.py                # GUI components + Worker thread + Stylesheet
+│   ├── logger.py             # Logging system
+│   ├── settings.py           # Settings persistence
+│   ├── security.py           # Input validation & security
+│   ├── queue_manager.py      # Download queue management
+│   ├── icon.png              # App icon (PNG)
+│   └── icon.ico              # App icon (ICO)
+│
+├── tests/                    # 🧪 Unit tests
+│   ├── __init__.py
+│   ├── test_worker.py        # Tests for download worker
+│   └── test_security.py      # Tests for security validation
+│
+├── .github/                  # 🔧 GitHub Actions CI/CD
+│   └── workflows/
+│       └── ci.yml            # Automated testing workflow
+│
+├── .gitignore               # Git ignore patterns
+└── README.md                # 📖 File này
+
+# Thư mục tự động tạo (không commit vào git):
+├── .venv/                   # Virtual environment (local only)
+├── downloads/               # 📂 Thư mục mặc định lưu video
+├── logs/                    # 📝 Log files (tự động tạo)
+├── build/                   # Build artifacts (PyInstaller)
+└── dist/                    # Distribution files (.exe)
 ```
 
 ### Chi tiết từng file:
@@ -156,10 +180,18 @@ download-app/
 | File | Mục Đích |
 |------|---------|
 | `run.py` | Root-level entry point. Gọi `app.app.main()` |
+| `build.py` | Build Windows executable với PyInstaller |
 | `app/__init__.py` | Biến folder `app` thành Python package |
 | `app/app.py` | Khởi tạo `QApplication`, hiển thị `MainWindow`, chạy event loop |
 | `app/gui.py` | Toàn bộ UI: `MainWindow`, `DownloadWorker`, styling |
+| `app/logger.py` | Hệ thống logging với file rotation |
+| `app/settings.py` | Lưu/đọc settings (folder path, quality preference) |
+| `app/security.py` | Validation URL, path traversal protection |
+| `app/queue_manager.py` | Quản lý hàng đợi download |
+| `tests/` | Unit tests với pytest |
+| `.github/workflows/ci.yml` | Tự động chạy tests khi push code |
 | `downloads/` | Folder lưu video đã tải (tự tạo nếu chưa có) |
+| `logs/` | Log files (tự tạo, max 5 files x 5MB) |
 
 ---
 

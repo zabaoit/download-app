@@ -246,11 +246,11 @@ class MainWindow(QMainWindow):
         win_x = settings_data.get("window_x", 100)
         win_y = settings_data.get("window_y", 100)
         win_w = settings_data.get("window_width", 700)
-        win_h = settings_data.get("window_height", 280)
+        win_h = settings_data.get("window_height", 350)
         self.setGeometry(win_x, win_y, win_w, win_h)
         
         # Load dark mode preference
-        self.dark_mode = settings_data.get("dark_mode", False)
+        self.dark_mode = settings_data.get("dark_mode", True)  # Default dark
         self.setStyleSheet(self._get_stylesheet())
         # Set window icon using emoji/text (fallback for Windows)
         self.setWindowIcon(self._create_icon())
@@ -264,78 +264,117 @@ class MainWindow(QMainWindow):
         self.downloads_dir.mkdir(parents=True, exist_ok=True)
 
         main_layout = QVBoxLayout()
+        main_layout.setSpacing(15)
+        main_layout.setContentsMargins(20, 20, 20, 20)
 
-        # URL input + choose folder row
-        row1 = QHBoxLayout()
-        self.url_input = QLineEdit()
-        self.url_input.setPlaceholderText("Nhập URL video...")
-        self.url_input.returnPressed.connect(self.start_download)  # trigger download on Enter
-        row1.addWidget(self.url_input)
-
-        self.choose_btn = QPushButton("📁 Chọn thư mục")
-        self.choose_btn.clicked.connect(self.choose_folder)
-        row1.addWidget(self.choose_btn)
-
-        # small icon button for dark mode next to the choose folder button
-        self.theme_btn = QPushButton("☀️")
+        # Header with icon and title
+        header_layout = QHBoxLayout()
+        title_label = QLabel("📥 Download Video Đa Nền Tảng")
+        title_label.setStyleSheet("font-size: 18px; font-weight: bold; color: #4CAF50;")
+        header_layout.addWidget(title_label)
+        header_layout.addStretch()
+        
+        # Dark mode toggle button
+        self.theme_btn = QPushButton("🌙" if self.dark_mode else "☀️")
         self.theme_btn.setToolTip("Bật/Tắt Dark Mode")
         self.theme_btn.setCheckable(True)
-        self.theme_btn.setFixedSize(36, 28)
+        self.theme_btn.setChecked(self.dark_mode)
+        self.theme_btn.setFixedSize(36, 36)
         self.theme_btn.clicked.connect(lambda: self._toggle_dark_mode(self.theme_btn.isChecked()))
-        row1.addWidget(self.theme_btn)
+        header_layout.addWidget(self.theme_btn)
         
-        # Quality selector dropdown
+        main_layout.addLayout(header_layout)
+
+        # URL input section
+        url_label = QLabel("🌐 URL video:")
+        url_label.setStyleSheet("font-size: 13px; font-weight: 600;")
+        main_layout.addWidget(url_label)
+        
+        self.url_input = QLineEdit()
+        self.url_input.setPlaceholderText("Nhập URL video từ YouTube, TikTok, Instagram...")
+        self.url_input.returnPressed.connect(self.start_download)
+        self.url_input.setMinimumHeight(40)
+        main_layout.addWidget(self.url_input)
+
+        # Folder selection section
+        folder_label = QLabel("📁 Thư mục lưu file:")
+        folder_label.setStyleSheet("font-size: 13px; font-weight: 600;")
+        main_layout.addWidget(folder_label)
+        
+        folder_row = QHBoxLayout()
+        self.folder_input = QLineEdit(str(self.downloads_dir))
+        self.folder_input.setReadOnly(True)
+        self.folder_input.setMinimumHeight(40)
+        folder_row.addWidget(self.folder_input)
+        
+        self.choose_btn = QPushButton("📂 Chọn thư mục")
+        self.choose_btn.clicked.connect(self.choose_folder)
+        self.choose_btn.setFixedHeight(40)
+        self.choose_btn.setMinimumWidth(140)
+        folder_row.addWidget(self.choose_btn)
+        
+        main_layout.addLayout(folder_row)
+        
+        # Quality selector
+        quality_label = QLabel("🎬 Chất lượng video:")
+        quality_label.setStyleSheet("font-size: 13px; font-weight: 600;")
+        main_layout.addWidget(quality_label)
+        
         self.quality_combo = QComboBox()
         self.quality_combo.addItems(["Auto (Tốt nhất)", "1080p", "720p", "Audio Only"])
         self.quality_combo.setToolTip("Chọn chất lượng video")
-        self.quality_combo.setMaximumWidth(150)
+        self.quality_combo.setMinimumHeight(40)
         # Restore quality preference from settings
         saved_quality = settings_data.get("quality", "Auto (Tốt nhất)")
         quality_index = self.quality_combo.findText(saved_quality)
         if quality_index >= 0:
             self.quality_combo.setCurrentIndex(quality_index)
-        row1.addWidget(self.quality_combo)
-
-        main_layout.addLayout(row1)
-
-        # show selected folder
-        header_row = QHBoxLayout()
-        self.folder_label = QLabel(f"📂 Lưu vào: {self.downloads_dir}")
-        header_row.addWidget(self.folder_label)
-        header_row.addStretch()
-
-        main_layout.addLayout(header_row)
+        main_layout.addWidget(self.quality_combo)
 
         # progress bar and status
         self.progress_bar = QProgressBar()
-        # Initially hide progress (no 0% shown). It will appear as a busy indicator when download starts.
         self.progress_bar.setVisible(False)
-        # Ensure determinate range default
         self.progress_bar.setRange(0, 100)
+        self.progress_bar.setMinimumHeight(30)
+        self.progress_bar.setTextVisible(True)
         main_layout.addWidget(self.progress_bar)
 
         self.result_label = QLabel("")
+        self.result_label.setWordWrap(True)
+        self.result_label.setStyleSheet("font-size: 12px; padding: 8px;")
         main_layout.addWidget(self.result_label)
 
-        # buttons
+        # Big download button
         btn_row = QHBoxLayout()
-        self.download_btn = QPushButton("⬇️ Download")
+        self.download_btn = QPushButton("⬇️ TẢI XUỐNG")
         self.download_btn.clicked.connect(self.start_download)
-        btn_row.addWidget(self.download_btn)
-
-        self.cancel_btn = QPushButton("✕ Hủy")
-        self.cancel_btn.setEnabled(False)
-        self.cancel_btn.clicked.connect(self.cancel_download)
-        btn_row.addWidget(self.cancel_btn)
-
-        main_layout.addLayout(btn_row)
+        self.download_btn.setMinimumHeight(50)
+        self.download_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                font-size: 16px;
+                font-weight: bold;
+                border-radius: 8px;
+                padding: 12px;
+            }
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+            QPushButton:pressed {
+                background-color: #3d8b40;
+            }
+            QPushButton:disabled {
+                background-color: #cccccc;
+                color: #666666;
+            }
+        """)
+        main_layout.addWidget(self.download_btn)
+        main_layout.addStretch()
 
         container = QWidget()
         container.setLayout(main_layout)
         self.setCentralWidget(container)
-
-        # theme state: default light (black & white). Will be toggled by UI.
-        self.dark_mode = False
 
         # worker/thread refs
         self._worker = None
@@ -380,7 +419,7 @@ class MainWindow(QMainWindow):
         path = QFileDialog.getExistingDirectory(self, "Chọn thư mục lưu", str(self.downloads_dir))
         if path:
             self.downloads_dir = Path(path)
-            self.folder_label.setText(f"Lưu vào: {self.downloads_dir}")
+            self.folder_input.setText(str(self.downloads_dir))
             # Save to settings
             self.settings.set("downloads_dir", str(self.downloads_dir))
 
@@ -423,7 +462,6 @@ class MainWindow(QMainWindow):
         # disable buttons while downloading
         self.download_btn.setEnabled(False)
         self.choose_btn.setEnabled(False)
-        self.cancel_btn.setEnabled(True)
         # Show a busy/indeterminate progress bar to indicate loading (no 0% shown)
         self.progress_bar.setVisible(True)
         self.progress_bar.setRange(0, 0)  # indeterminate (busy) mode
@@ -463,7 +501,6 @@ class MainWindow(QMainWindow):
             try:
                 self.download_btn.setEnabled(True)
                 self.choose_btn.setEnabled(True)
-                self.cancel_btn.setEnabled(False)
             except Exception:
                 pass
             try:
@@ -538,7 +575,6 @@ class MainWindow(QMainWindow):
             try:
                 self.download_btn.setEnabled(True)
                 self.choose_btn.setEnabled(True)
-                self.cancel_btn.setEnabled(False)
             except Exception:
                 pass
             try:
@@ -559,7 +595,6 @@ class MainWindow(QMainWindow):
             # Re-enable primary buttons
             self.download_btn.setEnabled(True)
             self.choose_btn.setEnabled(True)
-            self.cancel_btn.setEnabled(False)
         except Exception:
             pass
 
@@ -593,7 +628,6 @@ class MainWindow(QMainWindow):
         event.accept()
         self.download_btn.setEnabled(True)
         self.choose_btn.setEnabled(True)
-        self.cancel_btn.setEnabled(False)
         self._worker = None
         self._thread = None
         # reset progress bar to hidden and determinate default
