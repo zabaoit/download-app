@@ -1,2 +1,5 @@
 yt-dlp
 PySide6
+brotli
+pycryptodomex
+websockets

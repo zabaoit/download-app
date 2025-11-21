@@ -20,6 +20,13 @@ import os
 import sys
 import shutil
 import re
+
+# Windows-specific flag to hide console window
+if sys.platform == 'win32':
+    CREATE_NO_WINDOW = 0x08000000
+else:
+    CREATE_NO_WINDOW = 0
+
 from .settings import SettingsManager
 from .logger import setup_logging, get_logger
 from .security import validate_url, sanitize_filename
@@ -65,6 +72,7 @@ class DownloadWorker(QObject):
                     capture_output=True,
                     text=False,  # Get bytes, not text (avoid encoding issues)
                     timeout=10,
+                    creationflags=CREATE_NO_WINDOW,
                 )
                 # Decode with error handling (ignore non-UTF8 chars)
                 try:
@@ -128,11 +136,56 @@ class DownloadWorker(QObject):
                 "format": format_map.get(self.quality, format_map["auto"]),
                 "quiet": False,
                 "no_warnings": False,
+                # Multi-layer YouTube bot bypass strategy
+                "extractor_args": {
+                    "youtube": {
+                        # Try multiple clients in order (android_creator is most reliable)
+                        "player_client": ["android_creator", "android", "web"],
+                        "skip": ["webpage", "configs"],
+                    }
+                },
             }
             
+            # Check if cookies.txt exists in project root
+            cookies_file = Path(__file__).resolve().parents[1] / "cookies.txt"
+            if cookies_file.exists():
+                ydl_opts["cookiefile"] = str(cookies_file)
+                self.logger.info(f"Using cookies from: {cookies_file}")
+            
             self.logger.info(f"Starting download: {self.url} (quality: {self.quality})")
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([self.url])
+            
+            # Try download with fallback strategies
+            download_success = False
+            last_error = None
+            
+            # Strategy 1: Try with cookies.txt file or android_creator client
+            try:
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    ydl.download([self.url])
+                download_success = True
+            except Exception as e:
+                last_error = e
+                self.logger.warning(f"Strategy 1 failed: {e}")
+                
+                # Strategy 2: Try with cookies from browser (if cookies.txt didn't work)
+                if not cookies_file.exists():
+                if "Sign in to confirm" in str(e) or "bot" in str(e).lower():
+                    self.logger.info("Attempting to use browser cookies...")
+                    for browser in ["edge", "firefox", "chrome"]:
+                        try:
+                            cookie_opts = ydl_opts.copy()
+                            cookie_opts["cookiesfrombrowser"] = (browser,)
+                            with yt_dlp.YoutubeDL(cookie_opts) as ydl:
+                                ydl.download([self.url])
+                            download_success = True
+                            self.logger.info(f"Success with {browser} cookies!")
+                            break
+                        except Exception as browser_error:
+                            self.logger.debug(f"Failed with {browser}: {browser_error}")
+                            continue
+            
+            if not download_success:
+                raise last_error or Exception("Download failed with all strategies")
             
             final_path = None
             if self._last_filename:
@@ -190,7 +243,7 @@ class DownloadWorker(QObject):
                                     "-b:a",
                                     "192k",
                                     str(tmp),
-                                ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                                ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=CREATE_NO_WINDOW)
 
                                 # atomically replace original with tmp
                                 try:

@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# -*- coding: utf-8 -*-
 """
 Build script for Download App.
 Creates platform-specific distributable packages.
@@ -20,9 +21,9 @@ def check_dependencies():
     """Check if required build tools are installed."""
     try:
         import PyInstaller
-        print(f"✓ PyInstaller found: {PyInstaller.__version__}")
+        print(f"[OK] PyInstaller found: {PyInstaller.__version__}")
     except ImportError:
-        print("✗ PyInstaller not found. Install with: pip install pyinstaller")
+        print("[ERROR] PyInstaller not found. Install with: pip install pyinstaller")
         sys.exit(1)
 
 
@@ -41,7 +42,7 @@ def build_windows():
     ])
     
     if result.returncode == 0:
-        print("\n✓ Windows build complete!")
+        print("\n[OK] Windows build complete!")
         print(f"  Executable: dist/DownloadApp/DownloadApp.exe")
         # If a bundled ffmpeg exists in project, copy into dist so exe can use it
         src_ffmpeg = Path(__file__).resolve().parents[0] / "app" / "ffmpeg" / "ffmpeg.exe"
@@ -84,7 +85,7 @@ def build_macos():
     ])
     
     if result.returncode == 0:
-        print("\n✓ macOS build complete!")
+        print("\n[OK] macOS build complete!")
         print(f"  App bundle: dist/DownloadApp.app")
     else:
         print("\n✗ Build failed!")
@@ -106,11 +107,11 @@ def build_linux():
     ])
     
     if result.returncode == 0:
-        print("\n✓ Linux build complete!")
+        print("\n[OK] Linux build complete!")
         print(f"  Executable: dist/DownloadApp/DownloadApp")
         print("\n  To create AppImage, install: sudo apt install appimagetool")
     else:
-        print("\n✗ Build failed!")
+        print("\n[ERROR] Build failed!")
         sys.exit(1)
 
 
@@ -121,7 +122,7 @@ def clean():
         if Path(path).exists():
             print(f"  Removing {path}/...")
             shutil.rmtree(path)
-    print("✓ Cleanup complete")
+    print("[OK] Cleanup complete")
 
 
 def main():
