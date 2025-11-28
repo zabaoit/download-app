@@ -62,7 +62,7 @@ def build_windows():
         except Exception as e:
             print(f"  Warning: failed to create zip artifact: {e}")
     else:
-        print("\n✗ Build failed!")
+        print("\n[ERROR] Build failed!")
         sys.exit(1)
 
 
@@ -73,7 +73,7 @@ def build_macos():
     print("="*60)
     
     if sys.platform != "darwin":
-        print("✗ macOS build only supported on macOS")
+        print("[ERROR] macOS build only supported on macOS")
         return
     
     # Run PyInstaller
@@ -88,7 +88,7 @@ def build_macos():
         print("\n[OK] macOS build complete!")
         print(f"  App bundle: dist/DownloadApp.app")
     else:
-        print("\n✗ Build failed!")
+        print("\n[ERROR] Build failed!")
         sys.exit(1)
 
 

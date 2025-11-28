@@ -65,7 +65,7 @@ class DownloadWorker(QObject):
                 self.logger.warning("ffmpeg not found; cannot detect HEVC codec")
                 return False
 
-            # Use ffmpeg to probe video (parse output for hevc/h265/hvc1)
+            # Use ffmpeg to probe video (parse output for hevc/h265/hvc1/bytevc1)
             try:
                 result = subprocess.run(
                     [ffmpeg_cmd, "-i", video_path],
@@ -80,7 +80,8 @@ class DownloadWorker(QObject):
                 except:
                     output = ""
                 
-                is_hevc = "hevc" in output.lower() or "h265" in output.lower() or "hvc1" in output.lower()
+                # Check for HEVC codecs: hevc, h265, hvc1 (standard names) and bytevc1 (TikTok)
+                is_hevc = "hevc" in output.lower() or "h265" in output.lower() or "hvc1" in output.lower() or "bytevc1" in output.lower()
                 self.logger.info(f"Video codec check: HEVC={is_hevc}")
                 return is_hevc
             except subprocess.TimeoutExpired:
@@ -123,11 +124,12 @@ class DownloadWorker(QObject):
             outtmpl = str(Path(self.outdir) / f"{sanitized_title}.%(ext)s")
             
             # Set format based on quality setting
+            # Simple & reliable format selection
             format_map = {
-                "auto": "best[ext=mp4]/best",
-                "1080p": "bestvideo[height<=1080][ext=mp4]+bestaudio/best",
-                "720p": "bestvideo[height<=720][ext=mp4]+bestaudio/best",
-                "audio": "bestaudio/best",
+                "auto": "best",
+                "1080p": "best[height<=1080]",
+                "720p": "best[height<=720]", 
+                "audio": "bestaudio",
             }
             
             ydl_opts = {
@@ -136,14 +138,17 @@ class DownloadWorker(QObject):
                 "format": format_map.get(self.quality, format_map["auto"]),
                 "quiet": False,
                 "no_warnings": False,
-                # Multi-layer YouTube bot bypass strategy
+                # Use web client only (most compatible)
                 "extractor_args": {
                     "youtube": {
-                        # Try multiple clients in order (android_creator is most reliable)
-                        "player_client": ["android_creator", "android", "web"],
-                        "skip": ["webpage", "configs"],
+                        "player_client": ["web"],
                     }
                 },
+                # Auto-merge video and audio when needed
+                "postprocessors": [{
+                    "key": "FFmpegVideoConvertor",
+                    "preferedformat": "mp4"
+                }],
             }
             
             # Check if cookies.txt exists in project root
@@ -158,18 +163,17 @@ class DownloadWorker(QObject):
             download_success = False
             last_error = None
             
-            # Strategy 1: Try with cookies.txt file or android_creator client
+            # Strategy 1: Try with current format settings
             try:
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     ydl.download([self.url])
                 download_success = True
             except Exception as e:
                 last_error = e
-                self.logger.warning(f"Strategy 1 failed: {e}")
+                self.logger.warning(f"Strategy 1 (web client) failed: {e}")
                 
-                # Strategy 2: Try with cookies from browser (if cookies.txt didn't work)
-                if not cookies_file.exists():
-                if "Sign in to confirm" in str(e) or "bot" in str(e).lower():
+                # Strategy 2: Try with browser cookies for authentication
+                if ("Sign in" in str(e) or "bot" in str(e).lower() or "age" in str(e).lower()) and not download_success:
                     self.logger.info("Attempting to use browser cookies...")
                     for browser in ["edge", "firefox", "chrome"]:
                         try:
@@ -227,6 +231,7 @@ class DownloadWorker(QObject):
                                 self.logger.warning("ffmpeg not found; skipping HEVC transcode and keeping original file.")
                             else:
                                 # Transcode HEVC to H.264 + AAC for maximum Windows compatibility
+                                self.logger.info(f"FFmpeg found at: {ffmpeg_cmd}")
                                 subprocess.run([
                                     ffmpeg_cmd,
                                     "-y",
@@ -235,16 +240,18 @@ class DownloadWorker(QObject):
                                     "-c:v",
                                     "libx264",
                                     "-preset",
-                                    "medium",  # medium quality/speed balance
+                                    "slow",  # higher quality (slower encoding) - preset: ultrafast, fast, medium, slow, slower
                                     "-crf",
-                                    "20",  # quality (lower = better, 0-51)
+                                    "16",  # quality (lower = better, 0-51) - 16 = high quality
                                     "-c:a",
                                     "aac",
                                     "-b:a",
-                                    "192k",
+                                    "256k",  # higher bitrate for better audio quality
                                     str(tmp),
                                 ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=CREATE_NO_WINDOW)
-
+                                
+                                self.logger.info(f"HEVC transcode successful, replacing original file")
+                                
                                 # atomically replace original with tmp
                                 try:
                                     tmp.replace(src)
